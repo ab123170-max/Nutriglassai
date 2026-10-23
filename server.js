@@ -12,7 +12,13 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: "12mb" }));
 app.use(express.static(path.join(root, "public")));
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, aiConfigured: Boolean(apiKey) }));
+app.get("/api/health", (_req, res) => res.json({ ok: true, aiConfigured: Boolean(apiKey), databaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) }));
+
+// Supabase URL and publishable/anon key are intended for browser use; database access is protected by RLS.
+app.get("/api/config", (_req, res) => res.json({
+  supabaseUrl: process.env.SUPABASE_URL || "",
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY || ""
+}));
 
 app.post("/api/scan", async (req, res) => {
   try {

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const app = express();
 const port = process.env.PORT || 3000;
 const apiKey = process.env.GEMINI_API_KEY;
-const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 app.use(express.json({ limit: "10mb" }));

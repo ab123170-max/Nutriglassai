@@ -17,12 +17,37 @@
 <button class="btn primary full" id="scan" disabled>Scan food with AI →</button><button class="btn full hidden" id="retake">Retake photo</button><div class="status" id="status" role="status" aria-live="polite">Your photo is sent for analysis only after you tap Scan.</div>
 <div class="notice"><strong>Privacy:</strong> Camera starts only when requested. A photo is sent to the configured AI service only when you scan. Avoid faces and private information.</div></section>
 <section class="card result" id="result"><div class="head"><h3>AI scan result</h3><span class="muted">Estimate, not a measurement</span></div><h2 class="food" id="foodName">Food</h2><span class="confidence" id="confidence">Confidence</span><div class="cal" id="calories">—</div><div class="muted">estimated kcal</div><p class="muted" id="basis"></p><div class="divider"></div><div class="muted">Estimated portion</div><div id="portion" style="margin-top:5px;font-size:14px"></div><label class="field" for="portionEdit">Correct food or portion (optional)</label><input class="input" id="portionEdit" maxlength="120" placeholder="e.g. 6 steamed momos, medium plate"><div class="suggest"><b>YOUR COACH SAYS</b><div id="suggestion" style="margin-top:5px"></div></div><button class="btn primary full" id="log">✓ Confirm & add to today's log</button><button class="btn full" id="discard">Discard result</button></section>
-<section class="card"><div class="head"><h3>Today's food log</h3><span class="muted" id="date"></span></div><div style="display:flex;align-items:baseline;gap:8px"><strong id="total" style="font-size:30px">0</strong><span class="muted">estimated kcal logged</span></div><div id="items"><div class="empty">No confirmed foods yet. Scan a meal to add it here.</div></div><button class="btn full" id="clear">Clear today's log</button></section>
+<section class="card"><div class="head"><h3>Today's food log</h3><span class="muted" id="date"></span></div><div class="muted" id="dbStatus" style="margin-bottom:10px">Checking database…</div><div style="display:flex;align-items:baseline;gap:8px"><strong id="total" style="font-size:30px">0</strong><span class="muted">estimated kcal logged</span></div><div id="items"><div class="empty">No confirmed foods yet. Scan a meal to add it here.</div></div><button class="btn full" id="clear">Clear today's log</button></section>
 <p class="footer">Early prototype, not a medical device. Photo-based calorie estimates can be wrong, especially when portion size, oil, sugar, sauces, or hidden ingredients are unclear. This app does not diagnose or replace professional advice.</p>
 </main>
-<script>
-(()=>{const $=id=>document.getElementById(id);let stream=null,photo=null,mime="image/jpeg",result=null,log=[];const key="nutriglass-log-"+new Date().toLocaleDateString("en-CA");
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+(async()=>{const $=id=>document.getElementById(id);let stream=null,photo=null,mime="image/jpeg",result=null,log=[];let db=null,dbUser=null;const key="nutriglass-log-"+new Date().toLocaleDateString("en-CA");
 function status(t,c=""){$("status").textContent=t;$("status").className="status "+c}
+async function setupDatabase(){
+  try{
+    const cfgRes=await fetch("/api/config",{cache:"no-store"});
+    const cfg=await cfgRes.json();
+    if(!cfg.supabaseUrl||!cfg.supabaseAnonKey){$("dbStatus").textContent="Local-only log";return}
+    db=createClient(cfg.supabaseUrl,cfg.supabaseAnonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+    let session=(await db.auth.getSession()).data.session;
+    if(!session){const {data,error}=await db.auth.signInAnonymously();if(error)throw error;session=data.session}
+    dbUser=session.user;
+    $("dbStatus").textContent="Cloud database connected";
+    const {data,error}=await db.from("food_logs").select("id,food_name,portion,calories,logged_date,created_at").eq("logged_date",new Date().toISOString().slice(0,10)).order("created_at",{ascending:true});
+    if(error)throw error;
+    const cloud=(data||[]).map(x=>({cloud_id:x.id,name:x.food_name,portion:x.portion,calories:x.calories}));
+    if(cloud.length){log=cloud;try{localStorage.setItem(key,JSON.stringify(log))}catch{}render()}
+  }catch(e){console.error("Supabase setup failed:",e);$("dbStatus").textContent="Database not connected";status("Cloud database is not connected yet. Your food log stays on this device.","error")}
+}
+async function saveCloudFood(item){
+  if(!db||!dbUser)return;
+  const {data,error}=await db.from("food_logs").insert({user_id:dbUser.id,food_name:item.name,portion:item.portion,calories:item.calories,logged_date:new Date().toISOString().slice(0,10)}).select("id").single();
+  if(error){console.error("Could not save food log:",error);$("dbStatus").textContent="Cloud save failed — saved on device";return}
+  item.cloud_id=data.id;try{localStorage.setItem(key,JSON.stringify(log))}catch{}
+  $("dbStatus").textContent="Saved to cloud";
+}
+
 function stop(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$("video").srcObject=null;$("video").classList.add("hidden");$("view").classList.remove("live");$("camera").textContent="◎ Open camera"}
 function showPhoto(data,type){photo=data;mime=type||"image/jpeg";$("preview").src=data;$("preview").classList.remove("hidden");$("video").classList.add("hidden");$("placeholder").classList.add("hidden");$("scan").disabled=false;$("retake").classList.remove("hidden");$("result").classList.remove("show");result=null;stop();status("Photo ready. Tap Scan food with AI to analyze it.")}
 $("camera").onclick=async()=>{if(stream){stop();$("placeholder").classList.remove("hidden");$("preview").classList.add("hidden");photo=null;$("scan").disabled=true;$("scan").textContent="Scan food with AI →";status("Camera closed.");return}if(!navigator.mediaDevices?.getUserMedia){status("Live camera needs HTTPS. Try Choose photo instead.","error");return}try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280}},audio:false});$("video").srcObject=stream;$("video").classList.remove("hidden");$("preview").classList.add("hidden");$("placeholder").classList.add("hidden");$("view").classList.add("live");$("camera").textContent="× Close camera";photo=null;$("scan").disabled=false;$("scan").textContent="◎ Capture photo";status("Center the food, then tap Capture photo.","good")}catch(e){status("Camera permission denied or camera unavailable. Allow access or choose a photo.","error")}};
@@ -32,9 +57,10 @@ $("file").onchange=e=>{const f=e.target.files?.[0];if(!f)return;if(!f.type.start
 $("retake").onclick=()=>{photo=null;result=null;$("preview").classList.add("hidden");$("placeholder").classList.remove("hidden");$("result").classList.remove("show");$("retake").classList.add("hidden");$("scan").disabled=true;$("scan").textContent="Scan food with AI →";status("Take a new photo or choose an image.")};
 function render(){const total=log.reduce((s,x)=>s+x.calories,0);$("total").textContent=total.toLocaleString();$("items").replaceChildren();if(!log.length){const e=document.createElement("div");e.className="empty";e.textContent="No confirmed foods yet. Scan a meal to add it here.";$("items").append(e);return}log.slice().reverse().forEach(x=>{const row=document.createElement("div");row.className="row";const icon=document.createElement("div");icon.textContent="🍽️";const main=document.createElement("div");main.className="rowmain";const name=document.createElement("strong");name.textContent=x.name;const portion=document.createElement("span");portion.textContent=x.portion;const kcal=document.createElement("div");kcal.className="kcal";kcal.textContent="~"+x.calories+" kcal";main.append(name,portion);row.append(icon,main,kcal);$("items").append(row)})}
 try{log=JSON.parse(localStorage.getItem(key)||"[]");if(!Array.isArray(log))log=[]}catch{log=[]}$("date").textContent=new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"});render();
-$("log").onclick=()=>{if(!result)return;const min=Number(result.calorieMin)||0,max=Number(result.calorieMax)||0;log.push({name:result.foodName||"Unidentified food",portion:$("portionEdit").value.trim()||result.portionEstimate||"Portion not specified",calories:Math.round((min+max)/2)});try{localStorage.setItem(key,JSON.stringify(log))}catch{}render();$("result").classList.remove("show");status("Added to today's log. Calories are estimates.","good")};
+$("log").onclick=()=>{if(!result)return;const min=Number(result.calorieMin)||0,max=Number(result.calorieMax)||0;const item={name:result.foodName||"Unidentified food",portion:$("portionEdit").value.trim()||result.portionEstimate||"Portion not specified",calories:Math.round((min+max)/2)};log.push(item);try{localStorage.setItem(key,JSON.stringify(log))}catch{}render();saveCloudFood(item);$("result").classList.remove("show");status("Added to today's log. Calories are estimates.","good")};
 $("discard").onclick=()=>{$("result").classList.remove("show");result=null;status("Result discarded.")};
 $("clear").onclick=()=>{if(log.length&&confirm("Clear today's food log from this device?")){log=[];try{localStorage.removeItem(key)}catch{}render();status("Today's log cleared.")}};
 if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("/sw.js").catch(()=>{});
+await setupDatabase();
 })();
 </script></body></html>

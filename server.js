@@ -28,59 +28,45 @@ app.post("/api/scan", async (req, res) => {
       return res.status(400).json({ error: "Please provide a JPEG, PNG, or WebP food photo." });
     }
     const prompt = `Identify the visible food cautiously. Return only JSON with keys foodName, confidence (high/medium/low), portionEstimate, calorieMin (integer), calorieMax (integer), basis, suggestion. Calories are estimates, never exact; do not invent hidden ingredients or exact weight. If portion is unclear, say so and use a wider range. Do not label foods morally or tell users they must not eat. Give a short, supportive suggestion for weight management. If no food is visible, foodName must be "Food not identified" and calories 0. The user must confirm before logging.`;
-    const upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(requestTimeoutMs),
       body: JSON.stringify({
-        model,
-        input: [
-          { type: "text", text: prompt },
-          { type: "image", data: imageBase64, mime_type: mimeType }
-        ],
-        response_format: {
-          type: "text",
-          mime_type: "application/json",
-          schema: {
-            type: "object",
-            properties: {
-              foodName: { type: "string" },
-              confidence: { type: "string", enum: ["high", "medium", "low"] },
-              portionEstimate: { type: "string" },
-              calorieMin: { type: "integer" },
-              calorieMax: { type: "integer" },
-              basis: { type: "string" },
-              suggestion: { type: "string" }
-            },
-            required: ["foodName", "confidence", "portionEstimate", "calorieMin", "calorieMax", "basis", "suggestion"]
-          }
-        },
-        generation_config: { thinking_level: "low", max_output_tokens: 300 }
+        contents: [{
+          role: "user",
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType, data: imageBase64 } }
+          ]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          maxOutputTokens: 300,
+          thinkingConfig: { thinkingLevel: "LOW" }
+        }
       })
     });
     const payload = await upstream.json();
     if (!upstream.ok) {
       const upstreamMessage = payload?.error?.message || `HTTP ${upstream.status}`;
-      console.error("Gemini error:", upstreamMessage);
-      const friendly = upstream.status === 429
-        ? "AI is busy or the API quota is exhausted. Please wait a little and try again."
-        : upstream.status === 400
-          ? "Gemini rejected the request. Check the selected model and try a clear food photo."
-          : "AI service failed. Check that GEMINI_API_KEY is valid and GEMINI_MODEL is available to your account.";
-      return res.status(upstream.status === 429 ? 429 : 502).json({ error: friendly, code: upstream.status === 429 ? "RATE_LIMIT" : "GEMINI_ERROR" });
+      console.error("Gemini error:", upstream.status, upstreamMessage);
+      let friendly;
+      if (upstream.status === 400) friendly = "Gemini rejected the request. Check the model name and try again.";
+      else if (upstream.status === 401 || upstream.status === 403) friendly = "Gemini API key is invalid or does not have access. Check GEMINI_API_KEY in Vercel.";
+      else if (upstream.status === 404) friendly = "Gemini model was not found. Set GEMINI_MODEL to gemini-3.8-flash in Vercel and redeploy.";
+      else if (upstream.status === 429) friendly = "Gemini API quota/rate limit reached. Wait and try again.";
+      else friendly = "Gemini service error. Check Vercel Runtime Logs for the exact cause.";
+      return res.status(upstream.status === 429 ? 429 : 502).json({ error: friendly, code: "GEMINI_HTTP_" + upstream.status });
     }
-    let raw = payload?.output_text;
-    if (!raw && Array.isArray(payload?.outputs)) {
-      raw = payload.outputs.map(o => o?.text || o?.content?.map?.(p => p.text || "").join("") || "").join("").trim();
+    const raw = payload?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("").trim();
+    if (!raw) {
+      console.error("Gemini returned no text:", JSON.stringify(payload).slice(0, 1200));
+      return res.status(502).json({ error: "Gemini returned an empty result. Please try again.", code: "EMPTY_AI_RESULT" });
     }
-    if (!raw && Array.isArray(payload?.output)) {
-      raw = payload.output.map(o => o?.text || o?.content?.map?.(p => p.text || "").join("") || "").join("").trim();
-    }
-    if (raw && typeof raw !== "string") raw = JSON.stringify(raw);
-    if (!raw) return res.status(502).json({ error: "AI returned no result. Please try again.", code: "EMPTY_AI_RESULT" });
     let result;
     try { result = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/\s*```$/, "")); }
-    catch { console.error("Could not parse Gemini response:", String(raw).slice(0, 500)); return res.status(502).json({ error: "Could not read the AI result. Please try again.", code: "INVALID_AI_JSON" }); }
+    catch { console.error("Could not parse Gemini response:", raw.slice(0, 500)); return res.status(502).json({ error: "Gemini response was not valid JSON. Please scan again.", code: "INVALID_AI_JSON" }); }
     const min = Number(result.calorieMin), max = Number(result.calorieMax);
     result.calorieMin = Number.isFinite(min) ? Math.max(0, Math.min(5000, Math.round(min))) : 0;
     result.calorieMax = Number.isFinite(max) ? Math.max(result.calorieMin, Math.min(5000, Math.round(max))) : result.calorieMin;

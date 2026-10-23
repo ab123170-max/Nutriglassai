@@ -55,7 +55,7 @@ app.post("/api/scan", async (req, res) => {
             required: ["foodName", "confidence", "portionEstimate", "calorieMin", "calorieMax", "basis", "suggestion"]
           }
         },
-        generation_config: { thinking_level: "minimal" }
+        generation_config: { thinking_level: "low", max_output_tokens: 300 }
       })
     });
     const payload = await upstream.json();

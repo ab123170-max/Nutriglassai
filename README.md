@@ -7,7 +7,7 @@ A mobile-first progressive web app prototype. It captures a food photo or accept
 Requires Node.js 20 or newer.
 
 1. Run `npm install`.
-2. Set the server environment variable `GEMINI_API_KEY` to your Gemini API key. Optionally set `GEMINI_MODEL` to a vision-capable model available to your account.
+2. Set the server environment variable `GEMINI_API_KEY` to your Gemini API key. The default model is `gemini-3.8-flash`. You can override `GEMINI_MODEL` with another vision-capable model available to your account.
 3. Run `npm start`.
 4. Open `http://localhost:3000`.
 

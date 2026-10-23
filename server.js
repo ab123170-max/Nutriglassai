@@ -9,7 +9,7 @@ const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const requestTimeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || 35000);
 const root = path.dirname(fileURLToPath(import.meta.url));
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "12mb" }));
 app.use(express.static(path.join(root, "public")));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, aiConfigured: Boolean(apiKey) }));

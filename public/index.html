@@ -59,7 +59,7 @@ function render(){const total=log.reduce((s,x)=>s+x.calories,0);$("total").textC
 try{log=JSON.parse(localStorage.getItem(key)||"[]");if(!Array.isArray(log))log=[]}catch{log=[]}$("date").textContent=new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"});render();
 $("log").onclick=()=>{if(!result)return;const min=Number(result.calorieMin)||0,max=Number(result.calorieMax)||0;const item={name:result.foodName||"Unidentified food",portion:$("portionEdit").value.trim()||result.portionEstimate||"Portion not specified",calories:Math.round((min+max)/2)};log.push(item);try{localStorage.setItem(key,JSON.stringify(log))}catch{}render();saveCloudFood(item);$("result").classList.remove("show");status("Added to today's log. Calories are estimates.","good")};
 $("discard").onclick=()=>{$("result").classList.remove("show");result=null;status("Result discarded.")};
-$("clear").onclick=()=>{if(log.length&&confirm("Clear today's food log from this device?")){log=[];try{localStorage.removeItem(key)}catch{}render();status("Today's log cleared.")}};
+$("clear").onclick=async()=>{if(log.length&&confirm("Clear today's food log from this device and cloud database?")){if(db&&dbUser){const {error}=await db.from("food_logs").delete().eq("user_id",dbUser.id).eq("logged_date",new Date().toISOString().slice(0,10));if(error){status("Could not clear cloud log: "+error.message,"error");return}}log=[];try{localStorage.removeItem(key)}catch{}render();status("Today's log cleared.","good")}};
 if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("/sw.js").catch(()=>{});
 await setupDatabase();
 })();

@@ -61,7 +61,7 @@ async function saveCloudScan(scan){
     food_name:String(scan.foodName||"Food not identified").slice(0,200),
     portion_estimate:String(scan.portionEstimate||"Not specified").slice(0,300),
     calorie_min:Math.max(0,Math.min(5000,Math.round(Number(scan.calorieMin)||0))),
-    calorie_max:Math.max(Math.max(0,Math.min(5000,Math.round(Number(scan.calorieMin)||0)),Math.min(5000,Math.round(Number(scan.calorieMax)||0))),
+    calorie_max:Math.max(Math.max(0,Math.min(5000,Math.round(Number(scan.calorieMin)||0))),Math.max(0,Math.min(5000,Math.round(Number(scan.calorieMax)||0)))),
     confidence,
     basis:String(scan.basis||"").slice(0,1000),
     suggestion:String(scan.suggestion||"").slice(0,1000)

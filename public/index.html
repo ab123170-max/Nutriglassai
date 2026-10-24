@@ -17,6 +17,7 @@
 <button class="btn primary full" id="scan" disabled>Scan food with AI →</button><button class="btn full hidden" id="retake">Retake photo</button><div class="status" id="status" role="status" aria-live="polite">Your photo is sent for analysis only after you tap Scan.</div>
 <div class="notice"><strong>Privacy:</strong> Camera starts only when requested. A photo is sent to the configured AI service only when you scan. Avoid faces and private information.</div></section>
 <section class="card result" id="result"><div class="head"><h3>AI scan result</h3><span class="muted">Estimate, not a measurement</span></div><h2 class="food" id="foodName">Food</h2><span class="confidence" id="confidence">Confidence</span><div class="cal" id="calories">—</div><div class="muted">estimated kcal</div><p class="muted" id="basis"></p><div class="divider"></div><div class="muted">Estimated portion</div><div id="portion" style="margin-top:5px;font-size:14px"></div><label class="field" for="portionEdit">Correct food or portion (optional)</label><input class="input" id="portionEdit" maxlength="120" placeholder="e.g. 6 steamed momos, medium plate"><div class="suggest"><b>YOUR COACH SAYS</b><div id="suggestion" style="margin-top:5px"></div></div><button class="btn primary full" id="log">✓ Confirm & add to today's log</button><button class="btn full" id="discard">Discard result</button></section>
+<section class="card" id="foodDatabase"><div class="head"><h3>Food calorie list</h3><span class="muted">Quick add</span></div><p class="muted">Search common foods and add an estimated serving directly—no AI scan needed.</p><input class="input" id="foodSearch" type="search" placeholder="Search rice, dal, momo, banana…"><div id="foodResults" style="margin-top:8px"></div><p class="muted">Values are approximate per typical serving; recipe, portion size and oil can change calories.</p></section>
 <section class="card"><div class="head"><h3>Today's food log</h3><span class="muted" id="date"></span></div><div class="muted" id="dbStatus" style="margin-bottom:10px">Checking database…</div><div style="display:flex;align-items:baseline;gap:8px"><strong id="total" style="font-size:30px">0</strong><span class="muted">estimated kcal logged</span></div><div id="items"><div class="empty">No confirmed foods yet. Scan a meal to add it here.</div></div><button class="btn full" id="clear">Clear today's log</button></section>
 <p class="footer">Early prototype, not a medical device. Photo-based calorie estimates can be wrong, especially when portion size, oil, sugar, sauces, or hidden ingredients are unclear. This app does not diagnose or replace professional advice.</p>
 </main>
@@ -56,8 +57,69 @@ function capture(){if(!stream||$("video").readyState<2)return;const v=$("video")
 $("scan").onclick=async()=>{if(stream&&!photo){capture();return}if(!photo)return;$("scan").disabled=true;status("Preparing photo for faster AI analysis…");$("result").classList.remove("show");try{photo=await optimizePhoto(photo);mime="image/jpeg";status("Sending photo to Gemini AI…");const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),40000);let r,d;try{r=await fetch("/api/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({imageBase64:photo.split(",")[1],mimeType:mime}),signal:controller.signal});d=await r.json()}finally{clearTimeout(timer)}if(!r.ok)throw Error(d.error||("AI scan failed (HTTP "+r.status+"). Please try again."));result=d;$("foodName").textContent=d.foodName||"Food not identified";$("confidence").textContent=(d.confidence||"unknown")+" confidence";$("calories").textContent=Number(d.calorieMin)===Number(d.calorieMax)?d.calorieMin:d.calorieMin+"–"+d.calorieMax;$("basis").textContent=d.basis||"Visual estimate; actual calories may differ.";$("portion").textContent=d.portionEstimate||"Unknown — please confirm.";$("portionEdit").value="";$("suggestion").textContent=d.suggestion||"Consider the portion and your overall daily eating pattern.";$("result").classList.add("show");status("Scan complete. Confirm the food and portion before logging.","good");$("result").scrollIntoView({behavior:"smooth",block:"nearest"})}catch(e){const message=e.name==="AbortError"?"The scan timed out. Check your internet and try a smaller, clearer photo.":(e.message||"Scan failed. Please try again.");status(message,"error")}finally{$("scan").disabled=false;$("scan").textContent="Scan food with AI →"}};
 $("file").onchange=e=>{const f=e.target.files?.[0];if(!f)return;if(!f.type.startsWith("image/")){status("Please choose an image.","error");return}if(f.size>8*1024*1024){status("Photo is too large. Choose one under 8 MB.","error");return}const reader=new FileReader();reader.onload=()=>showPhoto(reader.result,["image/png","image/webp"].includes(f.type)?f.type:"image/jpeg");reader.onerror=()=>status("Could not read the photo.","error");reader.readAsDataURL(f);e.target.value=""};
 $("retake").onclick=()=>{photo=null;result=null;$("preview").classList.add("hidden");$("placeholder").classList.remove("hidden");$("result").classList.remove("show");$("retake").classList.add("hidden");$("scan").disabled=true;$("scan").textContent="Scan food with AI →";status("Take a new photo or choose an image.")};
+const FOOD_DB=[
+{name:"Dal bhat (rice + lentil soup)",portion:"1 medium plate",kcal:500,cat:"Nepali"},
+{name:"Cooked white rice",portion:"1 cup",kcal:205,cat:"Grains"},
+{name:"Dal (lentil soup)",portion:"1 cup",kcal:150,cat:"Nepali"},
+{name:"Roti / chapati",portion:"1 medium piece",kcal:120,cat:"Grains"},
+{name:"Aloo tarkari",portion:"1 cup",kcal:180,cat:"Nepali"},
+{name:"Vegetable curry",portion:"1 cup",kcal:160,cat:"Nepali"},
+{name:"Chicken curry",portion:"1 cup",kcal:280,cat:"Nepali"},
+{name:"Boiled egg",portion:"1 large egg",kcal:78,cat:"Protein"},
+{name:"Fried egg",portion:"1 egg",kcal:110,cat:"Protein"},
+{name:"Chicken momo",portion:"1 piece",kcal:55,cat:"Nepali"},
+{name:"Buff momo",portion:"1 piece",kcal:60,cat:"Nepali"},
+{name:"Vegetable momo",portion:"1 piece",kcal:40,cat:"Nepali"},
+{name:"Momo with achar",portion:"1 plate (10 pieces)",kcal:600,cat:"Nepali"},
+{name:"Thukpa",portion:"1 medium bowl",kcal:350,cat:"Nepali"},
+{name:"Chow mein",portion:"1 plate",kcal:500,cat:"Nepali"},
+{name:"Sel roti",portion:"1 piece",kcal:190,cat:"Nepali"},
+{name:"Puri",portion:"1 piece",kcal:100,cat:"Nepali"},
+{name:"Samosa",portion:"1 medium piece",kcal:260,cat:"Snacks"},
+{name:"Panipuri / golgappa",portion:"6 pieces",kcal:180,cat:"Snacks"},
+{name:"Chatpate",portion:"1 medium serving",kcal:300,cat:"Snacks"},
+{name:"Plain yogurt / dahi",portion:"1 cup",kcal:150,cat:"Dairy"},
+{name:"Milk",portion:"1 glass (250 ml)",kcal:150,cat:"Dairy"},
+{name:"Banana",portion:"1 medium",kcal:105,cat:"Fruit"},
+{name:"Apple",portion:"1 medium",kcal:95,cat:"Fruit"},
+{name:"Orange",portion:"1 medium",kcal:62,cat:"Fruit"},
+{name:"Mango",portion:"1 medium",kcal:135,cat:"Fruit"},
+{name:"Potato, boiled",portion:"1 medium",kcal:160,cat:"Vegetables"},
+{name:"Chickpeas / chana",portion:"1 cup cooked",kcal:270,cat:"Protein"},
+{name:"Lentils, cooked",portion:"1 cup",kcal:230,cat:"Protein"},
+{name:"Tofu",portion:"100 g",kcal:85,cat:"Protein"},
+{name:"Chicken breast, cooked",portion:"100 g",kcal:165,cat:"Protein"},
+{name:"Fish curry",portion:"1 cup",kcal:220,cat:"Nepali"},
+{name:"Biryani",portion:"1 medium plate",kcal:550,cat:"Meals"},
+{name:"Pizza",portion:"1 medium slice",kcal:285,cat:"Meals"},
+{name:"Burger",portion:"1 regular burger",kcal:450,cat:"Meals"},
+{name:"French fries",portion:"1 medium serving",kcal:365,cat:"Snacks"},
+{name:"Oats porridge",portion:"1 cup cooked",kcal:160,cat:"Breakfast"},
+{name:"Peanuts",portion:"30 g handful",kcal:170,cat:"Snacks"},
+{name:"Almonds",portion:"28 g handful",kcal:165,cat:"Snacks"},
+{name:"Tea with milk and sugar",portion:"1 cup",kcal:80,cat:"Drinks"},
+{name:"Black tea, no sugar",portion:"1 cup",kcal:2,cat:"Drinks"},
+{name:"Soft drink",portion:"1 can (330 ml)",kcal:140,cat:"Drinks"}
+];
+function showFoodMatches(){
+ const q=($("foodSearch").value||"").trim().toLowerCase();
+ const host=$("foodResults");host.replaceChildren();
+ const found=FOOD_DB.filter(x=>!q||(x.name+" "+x.cat).toLowerCase().includes(q)).slice(0,12);
+ if(!found.length){const p=document.createElement("div");p.className="empty";p.textContent="No matching food. Try another name.";host.append(p);return}
+ found.forEach(food=>{
+  const row=document.createElement("div");row.className="row";
+  const main=document.createElement("div");main.className="rowmain";
+  const name=document.createElement("strong");name.textContent=food.name;
+  const portion=document.createElement("span");portion.textContent=food.portion+" · "+food.cat;
+  const add=document.createElement("button");add.className="btn primary";add.style.minHeight="36px";add.style.padding="7px 10px";add.textContent="+";add.setAttribute("aria-label","Add "+food.name);
+  add.onclick=()=>{const item={name:food.name,portion:food.portion,calories:food.kcal};log.push(item);try{localStorage.setItem(key,JSON.stringify(log))}catch{}render();saveCloudFood(item);status("Added "+food.name+" (~"+food.kcal+" kcal).","good")};
+  const kcal=document.createElement("div");kcal.className="kcal";kcal.textContent="~"+food.kcal+" kcal";
+  main.append(name,portion);row.append(main,kcal,add);host.append(row);
+ });
+}
+$("foodSearch").addEventListener("input",showFoodMatches);
 function render(){const total=log.reduce((s,x)=>s+x.calories,0);$("total").textContent=total.toLocaleString();$("items").replaceChildren();if(!log.length){const e=document.createElement("div");e.className="empty";e.textContent="No confirmed foods yet. Scan a meal to add it here.";$("items").append(e);return}log.slice().reverse().forEach(x=>{const row=document.createElement("div");row.className="row";const icon=document.createElement("div");icon.textContent="🍽️";const main=document.createElement("div");main.className="rowmain";const name=document.createElement("strong");name.textContent=x.name;const portion=document.createElement("span");portion.textContent=x.portion;const kcal=document.createElement("div");kcal.className="kcal";kcal.textContent="~"+x.calories+" kcal";main.append(name,portion);row.append(icon,main,kcal);$("items").append(row)})}
-try{log=JSON.parse(localStorage.getItem(key)||"[]");if(!Array.isArray(log))log=[]}catch{log=[]}$("date").textContent=new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"});render();
+try{log=JSON.parse(localStorage.getItem(key)||"[]");if(!Array.isArray(log))log=[]}catch{log=[]}$("date").textContent=new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"});render();showFoodMatches();
 $("log").onclick=()=>{if(!result)return;const min=Number(result.calorieMin)||0,max=Number(result.calorieMax)||0;const item={name:result.foodName||"Unidentified food",portion:$("portionEdit").value.trim()||result.portionEstimate||"Portion not specified",calories:Math.round((min+max)/2)};log.push(item);try{localStorage.setItem(key,JSON.stringify(log))}catch{}render();saveCloudFood(item);$("result").classList.remove("show");status("Added to today's log. Calories are estimates.","good")};
 $("discard").onclick=()=>{$("result").classList.remove("show");result=null;status("Result discarded.")};
 $("clear").onclick=async()=>{if(log.length&&confirm("Clear today's food log from this device and cloud database?")){if(db&&dbUser){const {error}=await db.from("food_logs").delete().eq("user_id",dbUser.id).eq("logged_date",new Date().toISOString().slice(0,10));if(error){status("Could not clear cloud log: "+error.message,"error");return}}log=[];try{localStorage.removeItem(key)}catch{}render();status("Today's log cleared.","good")}};

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const app = express();
 const port = process.env.PORT || 3000;
 const apiKey = process.env.GEMINI_API_KEY;
-const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const requestTimeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || 35000);
 const root = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,7 +27,7 @@ app.post("/api/scan", async (req, res) => {
     if (!imageBase64 || !["image/jpeg", "image/png", "image/webp"].includes(mimeType)) {
       return res.status(400).json({ error: "Please provide a JPEG, PNG, or WebP food photo." });
     }
-    const prompt = `Identify the visible food cautiously. Return only JSON with keys foodName, confidence (high/medium/low), portionEstimate, calorieMin (integer), calorieMax (integer), basis, suggestion. Calories are estimates, never exact; do not invent hidden ingredients or exact weight. If portion is unclear, say so and use a wider range. Do not label foods morally or tell users they must not eat. Give a short, supportive suggestion for weight management. If no food is visible, foodName must be "Food not identified" and calories 0. The user must confirm before logging.`;
+    const prompt = `Identify the main visible food. Estimate a realistic serving calorie range. Do not claim exact weight or hidden ingredients. If uncertain, use low confidence and a wider range. If no food is visible, return Food not identified and 0 calories. Give one short supportive suggestion. Return JSON only with keys: foodName (string), confidence (high/medium/low), portionEstimate (string), calorieMin (integer), calorieMax (integer), basis (short string), suggestion (short string).`;
     const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -43,7 +43,7 @@ app.post("/api/scan", async (req, res) => {
         generationConfig: {
           responseMimeType: "application/json",
           maxOutputTokens: 300,
-          thinkingConfig: { thinkingLevel: "LOW" }
+          thinkingConfig: { thinkingLevel: "MINIMAL" }
         }
       })
     });
